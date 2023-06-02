@@ -1,67 +1,125 @@
+mod player;
+mod block;
+mod ball;
+mod collision;
+
+use ball::Ball;
+use collision::has_collide;
 use macroquad::prelude::*;
-
-const PLAYER_SIZE: Vec2 = Vec2::from_array([150.0, 40.0]);
-const PLAYER_SPEED: f32 = 700.0;
-
-struct Player {
-    rect: Rect
-}
-
-impl Player {
-    pub fn new() -> Self {
-        Player {
-            rect: Rect::new(
-                screen_width() * 0.5 - PLAYER_SIZE.x * 0.5,
-                screen_height() - 100.0,
-                PLAYER_SIZE.x,
-                PLAYER_SIZE.y
-            )
-        }
-    }
-
-    pub fn update(&mut self, dt: f32) {
-        let mut x_speed = 0.0;
-
-        if is_key_down(KeyCode::Left) {
-            x_speed -= 1.0;
-        }
-
-        if is_key_down(KeyCode::Right) {
-            x_speed += 1.0;
-        }
-
-        self.rect.x += x_speed * dt * PLAYER_SPEED;
-
-        if self.rect.x < 0.0 {
-            self.rect.x = 0.0;
-        }
-
-        if self.rect.x + self.rect.w > screen_width() {
-            self.rect.x = screen_width() - self.rect.w;
-        }
-    }
-
-    pub fn draw(&self) {
-        draw_rectangle(
-            self.rect.x,
-            self.rect.y,
-            self.rect.w,
-            self.rect.h,
-            DARKGRAY
-        );
-    }
-}
+use player::Player;
+use block::{Block, BLOCK_SIZE};
 
 #[macroquad::main("Breakout")]
 async fn main() {
+    let font = load_ttf_font("resources/Heebo-VariableFont_wght.ttf")
+        .await
+        .unwrap()
+    ;
+
+    let mut score = 0;
+    let score_text = format!("Score: {}", score);
+    let score_text_measure = measure_text(
+        &score_text,
+        Some(font),
+        30,
+        1.0
+    );
+
     let mut player = Player::new();
+    let mut balls: Vec<Ball> = vec![
+        Ball::new(
+            Vec2::new(screen_width() * 0.5f32, screen_height() * 0.5f32)
+        )
+    ];
+    
+    let mut blocks: Vec<Block> = Vec::new();
+    
+    let block_width = 6;
+    let padding = 5f32;
+
+    let total_block_size = BLOCK_SIZE + Vec2::new(padding, padding);
+    let board_start_position = Vec2::new(
+        (screen_width() - (total_block_size.x * block_width as f32)) * 0.5f32,
+        50f32
+    );
+
+    for i in 0..block_width * block_width {
+        let block_x = (i % block_width) as f32 * total_block_size.x;
+        let block_y = (i / block_width) as f32 * total_block_size.y;
+
+        blocks.push(
+            Block::new(
+                board_start_position + Vec2::new(block_x, block_y)
+            )
+        )
+    }
 
     loop {
         player.update(get_frame_time());
 
+        for ball in balls.iter_mut() {
+            ball.update(get_frame_time());
+            
+            if let Some(col) = has_collide(&ball.rect, &player.rect) {
+                let (intersection, direction) = col;
+                ball.repel(&intersection, &direction);
+            }
+
+            for block in blocks.iter_mut() {
+                if let Some(col) = has_collide(&ball.rect, &block.rect) {
+                    let (intersection, direction) = col;
+                    ball.repel(&intersection, &direction);
+                    block.lives -= 1;
+                    score += 10;
+                }
+            }
+        }
+
+        let balls_count = balls.len();
+        let is_last_ball = balls_count == 1;
+        balls.retain(|ball| ball.rect.y < screen_height());
+        let removed_balls = balls_count - balls.len();
+
+        if removed_balls > 0 && is_last_ball {
+            player.lives -= 1;
+        }
+
+        blocks.retain(|block| block.lives > 0);
+
         clear_background(WHITE);
 
-        player.draw();        
+        player.draw();
+
+        for block in blocks.iter() {
+            block.draw();
+        }
+
+        for ball in balls.iter() {
+            ball.draw();
+        }
+
+        draw_text_ex(
+            &score_text,
+            screen_width() * 0.5 - score_text_measure.width * 0.5,
+            30.0,
+            TextParams {
+                font,
+                font_size: 28,
+                color: BLACK,
+                ..Default::default()
+            }
+        );
+        draw_text_ex(
+            &format!("Lives: {}", player.lives),
+            20.0,
+            30.0,
+            TextParams {
+                font,
+                font_size: 28,
+                color: BLACK,
+                ..Default::default()
+            }
+        );
 
         next_frame().await
     }
