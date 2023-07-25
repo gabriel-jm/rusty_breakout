@@ -10,7 +10,7 @@ use collision::has_collide;
 use game_state::GameState;
 use macroquad::prelude::*;
 use player::Player;
-use block::{Block, BLOCK_SIZE};
+use block::{Block, init_blocks, BlockType};
 use text::draw_title_text;
 
 #[macroquad::main("Breakout")]
@@ -24,33 +24,13 @@ async fn main() {
     let mut score = 0;
 
     let mut player = Player::new();
-    let mut balls: Vec<Ball> = vec![
-        Ball::new(
-            Vec2::new(screen_width() * 0.5f32, screen_height() * 0.5f32)
-        )
-    ];
-    
+    let mut balls: Vec<Ball> = vec![Ball::new(
+        Vec2::new(screen_width() * 0.5f32, screen_height() * 0.5f32)
+    )];
+
     let mut blocks: Vec<Block> = Vec::new();
     
-    let block_width = 6;
-    let padding = 5f32;
-
-    let total_block_size = BLOCK_SIZE + Vec2::new(padding, padding);
-    let board_start_position = Vec2::new(
-        (screen_width() - (total_block_size.x * block_width as f32)) * 0.5f32,
-        50f32
-    );
-
-    for i in 0..block_width * block_width {
-        let block_x = (i % block_width) as f32 * total_block_size.x;
-        let block_y = (i / block_width) as f32 * total_block_size.y;
-
-        blocks.push(
-            Block::new(
-                board_start_position + Vec2::new(block_x, block_y)
-            )
-        )
-    }
+    init_blocks(&mut blocks);
 
     loop {
         clear_background(WHITE);
@@ -76,6 +56,7 @@ async fn main() {
             GameState::Game => {
                 player.update(get_frame_time());
 
+                let mut spawn_later: Vec<Ball> = Vec::new();
                 for ball in balls.iter_mut() {
                     ball.update(get_frame_time());
                     
@@ -89,21 +70,39 @@ async fn main() {
                             let (intersection, direction) = col;
                             ball.repel(&intersection, &direction);
                             block.lives -= 1;
-                            score += 10;
+                            if block.lives <= 0 {
+                                score += 10;
+
+                                if block.block_type == BlockType::SpawnBallOnDeath {
+                                    spawn_later.push(Ball::new(
+                                        ball.rect.point() + Vec2::new(0f32, 20f32)
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
 
+                for ball in spawn_later.into_iter() {
+                    balls.push(ball);
+                } 
+
                 let balls_count = balls.len();
-                let is_last_ball = balls_count == 1;
                 balls.retain(|ball| ball.rect.y < screen_height());
                 let removed_balls = balls_count - balls.len();
 
-                if removed_balls > 0 && is_last_ball {
+                if removed_balls > 0 && balls.is_empty() {
                     player.lives -= 1;
 
                     if player.lives <= 0 {
                         current_state = GameState::Dead;
+                    } else {
+                        balls.push(Ball::new(
+                            player.rect.point() + Vec2::new(
+                                player.rect.w / 2f32,
+                                -80f32
+                            )
+                        ))
                     }
                 }
 
@@ -147,6 +146,7 @@ async fn main() {
             GameState::LevelCompleted => {
                 if is_key_pressed(KeyCode::Space) {
                     current_state = GameState::Menu;
+                    reset(&mut score, &mut player, &mut blocks, &mut balls);
                 }
 
                 draw_title_text(&format!("You Win! {} score", score), font)
@@ -154,6 +154,7 @@ async fn main() {
             GameState::Dead => {
                 if is_key_pressed(KeyCode::Space) {
                     current_state = GameState::Menu;
+                    reset(&mut score, &mut player, &mut blocks, &mut balls);
                 }
 
                 draw_title_text(&format!("You Lose! {} score", score), font)
@@ -164,6 +165,17 @@ async fn main() {
     }
 }
 
-fn reset() {
-    
+fn reset(
+    score: &mut i32,
+    player: &mut Player,
+    blocks: &mut Vec<Block>,
+    balls: &mut Vec<Ball>
+) {
+    *player = Player::new();
+    *score = 0;
+    balls.clear();
+    *balls = vec![Ball::new(
+        Vec2::new(screen_width() * 0.5f32, screen_height() * 0.5f32)
+    )];
+    init_blocks(blocks);
 }
